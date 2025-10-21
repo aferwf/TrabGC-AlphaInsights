@@ -5,7 +5,7 @@ const Header = () => {
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-lg bg-primary/10">
                       <img
-            src="/logo-cnome.png"
+            src="/logo-favicon.png"
             alt="Logo Alpha Insights"
             className="h-10 w-10 object-contain"
           />
