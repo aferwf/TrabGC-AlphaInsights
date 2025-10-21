@@ -4,11 +4,12 @@ const Header = () => {
       <div className="container mx-auto px-4 py-4">
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-lg bg-primary/10">
-            <img
-              src="/logo-cnome.png"  
-              alt="Logo Alpha Insights"
-              className="h-6 w-6 object-contain"
-            />
+                      <img
+            src="/logo-alpha.png"
+            alt="Logo Alpha Insights"
+            className="h-10 w-10 object-contain"
+          />
+
           </div>
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Alpha Insights</h1>
