@@ -1,12 +1,14 @@
-import { Zap } from "lucide-react";
-
 const Header = () => {
   return (
     <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-50">
       <div className="container mx-auto px-4 py-4">
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-lg bg-primary/10">
-            <Zap className="h-6 w-6 text-primary" />
+            <img
+              src="/logo-favicon.png"  
+              alt="Logo Alpha Insights"
+              className="h-6 w-6 object-contain"
+            />
           </div>
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Alpha Insights</h1>
