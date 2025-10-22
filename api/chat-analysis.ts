@@ -1,30 +1,37 @@
+import express from "express";
+import cors from "cors";
+import bodyParser from "body-parser";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import dotenv from "dotenv";
 
-export async function POST(req: Request) {
+dotenv.config();
+
+const app = express();
+app.use(cors());
+app.use(bodyParser.json());
+
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
+
+app.post("/api/chat-analysis", async (req, res) => {
   try {
-    const { message } = await req.json();
+    const { message, data } = req.body;
 
-    if (!message) {
-      return new Response(
-        JSON.stringify({ error: "Mensagem não encontrada no corpo da requisição." }),
-        { status: 400 }
-      );
-    }
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+    const prompt = `
+Você é um assistente de análise de vendas. 
+Analise os dados abaixo e responda de forma útil.
 
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      return new Response(JSON.stringify({ error: "GEMINI_API_KEY não configurada." }), { status: 500 });
-    }
+Mensagem do usuário: "${message}"
+Dados das planilhas: ${JSON.stringify(data)}
+    `;
 
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-
-    const result = await model.generateContent(message);
+    const result = await model.generateContent(prompt);
     const response = result.response.text();
-
-    return new Response(JSON.stringify({ response }), { status: 200 });
-  } catch (error: any) {
+    res.json({ response });
+  } catch (error) {
     console.error("Erro na API:", error);
-    return new Response(JSON.stringify({ error: "Falha ao processar a mensagem." }), { status: 500 });
+    res.status(500).json({ error: "Erro ao processar a solicitação." });
   }
-}
+});
+
+app.listen(3001, () => console.log("🚀 Servidor API rodando na porta 3001"));
