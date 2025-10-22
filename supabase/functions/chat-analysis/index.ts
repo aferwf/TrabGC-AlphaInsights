@@ -87,23 +87,43 @@ INSTRUÇÕES:
 - Responda sempre em português do Brasil
 - Mantenha as respostas concisas e objetivas`;
 
-    // Call Gemini API directly usando v1beta com gemini-1.5-flash-latest
-    console.log("Calling Gemini API v1beta...");
-    const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              { text: `${systemPrompt}\n\nUsuário: ${message}` }
-            ]
-          }
-        ],
-      }),
-    });
+   // Chamada correta à API Gemini v1beta
+console.log("Chamando Gemini API (v1beta) com gemini-1.5-pro-latest...");
+
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+
+if (!GEMINI_API_KEY) {
+  throw new Error("GEMINI_API_KEY não está definida nas variáveis de ambiente da Vercel.");
+}
+
+const aiResponse = await fetch(
+  `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent?key=${GEMINI_API_KEY}`,
+  {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      contents: [
+        {
+          parts: [{ text: `${systemPrompt}\n\nUsuário: ${message}` }],
+        },
+      ],
+    }),
+  }
+);
+
+if (!aiResponse.ok) {
+  const errorText = await aiResponse.text();
+  console.error("Erro na chamada da API Gemini:", aiResponse.status, errorText);
+  throw new Error(`Falha na requisição: ${aiResponse.status}`);
+}
+
+const result = await aiResponse.json();
+console.log("Resposta da Gemini:", result);
+
+const botMessage = result?.candidates?.[0]?.content?.parts?.[0]?.text || "Não foi possível gerar uma resposta.";
+
 
     console.log("Gemini API response status:", aiResponse.status);
 
