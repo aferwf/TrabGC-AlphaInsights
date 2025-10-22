@@ -12,6 +12,7 @@ Deno.serve(async (req) => {
 
   try {
     const { message } = await req.json();
+    console.log("Received message:", message);
 
     if (!message || typeof message !== "string") {
       return new Response(
@@ -46,16 +47,27 @@ Deno.serve(async (req) => {
           .from("spreadsheets")
           .download(file.name);
 
-        if (!downloadError && fileData) {
-          const text = await fileData.text();
-          spreadsheetsContext += `\n\n=== Planilha: ${file.name} ===\n${text.substring(0, 10000)}\n`;
+        if (downloadError) {
+          console.error("Download error for", file.name, downloadError);
+          continue;
+        }
+
+        if (fileData) {
+          try {
+            const text = await fileData.text();
+            spreadsheetsContext += `\n\n=== Planilha: ${file.name} ===\n${text.substring(0, 10000)}\n`;
+          } catch (e) {
+            console.error("Parse error for", file.name, e);
+          }
         }
       }
     }
 
     // Get Gemini API key
     const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
+    console.log("GEMINI_API_KEY configured:", !!GEMINI_API_KEY);
     if (!GEMINI_API_KEY) {
+      console.error("GEMINI_API_KEY not found in environment");
       return new Response(
         JSON.stringify({ error: "API key não configurada" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -75,8 +87,9 @@ INSTRUÇÕES:
 - Responda sempre em português do Brasil
 - Mantenha as respostas concisas e objetivas`;
 
-    // Call Gemini API directly
-    const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${GEMINI_API_KEY}`, {
+    // Call Gemini API directly usando v1beta com gemini-1.5-flash-latest
+    console.log("Calling Gemini API v1beta...");
+    const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -91,6 +104,8 @@ INSTRUÇÕES:
         ],
       }),
     });
+
+    console.log("Gemini API response status:", aiResponse.status);
 
     if (!aiResponse.ok) {
       if (aiResponse.status === 429) {
@@ -109,14 +124,20 @@ INSTRUÇÕES:
       const errorText = await aiResponse.text();
       console.error("AI API error:", aiResponse.status, errorText);
       return new Response(
-        JSON.stringify({ error: "Erro ao processar com IA" }),
+        JSON.stringify({ 
+          error: "Erro ao processar com IA",
+          details: errorText,
+          status: aiResponse.status 
+        }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
     const aiData = await aiResponse.json();
+    console.log("AI Response:", JSON.stringify(aiData, null, 2));
     const responseText = aiData.candidates?.[0]?.content?.parts?.[0]?.text || "Desculpe, não consegui processar sua pergunta.";
 
+    console.log("Sending response:", responseText);
     return new Response(
       JSON.stringify({ response: responseText }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
