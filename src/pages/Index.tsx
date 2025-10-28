@@ -9,16 +9,17 @@ const Index = () => {
       
       <main className="container mx-auto px-4 py-6">
         <div className="grid lg:grid-cols-3 gap-6 h-[calc(100vh-140px)]">
-          {/* Chat Section - Takes 2 columns on large screens */}
-          <div className="lg:col-span-2">
-            <ChatSection />
-          </div>
-          
-          {/* Upload Section - Takes 1 column on large screens */}
-          <div className="lg:col-span-1">
-            <UploadSection />
-          </div>
-        </div>
+  {/* Chat Section - Takes 2 columns on large screens */}
+  <div className="lg:col-span-2 h-full overflow-y-auto scroll-smooth">
+    <ChatSection />
+  </div>
+  
+  {/* Upload Section - Takes 1 column on large screens */}
+  <div className="lg:col-span-1 h-full overflow-y-auto scroll-smooth">
+    <UploadSection />
+  </div>
+</div>
+
       </main>
     </div>
   );
