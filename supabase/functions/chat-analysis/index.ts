@@ -1,9 +1,44 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
+import * as XLSX from "npm:xlsx"; // MODIFICAÇÃO: Importa a biblioteca para ler Excel
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+// Função para formatar o histórico para a API do Gemini (Resolve o Problema 2)
+function buildGeminiContents(systemPrompt, history, newMessage) {
+  const contents = [];
+  
+  // 1. Adiciona o Prompt do Sistema (Instruções)
+  contents.push({
+    role: "user",
+    parts: [{ text: systemPrompt }],
+  });
+  contents.push({
+    role: "model",
+    parts: [{ text: "Entendido. Estou pronto para analisar as planilhas." }],
+  });
+
+  // 2. Adiciona o Histórico (se existir)
+  if (history && history.length > 0) {
+    history.forEach(item => {
+      // 'item' deve ter a estrutura { role: 'user' | 'model', text: '...' }
+      contents.push({
+        role: item.role,
+        parts: [{ text: item.text }],
+      });
+    });
+  }
+
+  // 3. Adiciona a Nova Mensagem do Usuário
+  contents.push({
+    role: "user",
+    parts: [{ text: newMessage }],
+  });
+
+  return contents;
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -11,8 +46,8 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { message } = await req.json();
-    console.log("Received message:", message);
+    // MODIFICAÇÃO: Espera 'history' para resolver o Problema 2
+    const { message, history } = await req.json();
 
     if (!message || typeof message !== "string") {
       return new Response(
@@ -21,158 +56,125 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Initialize Supabase client
+    // --- Carregamento do Supabase ---
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Get all spreadsheet files
     const { data: files, error: listError } = await supabase.storage
       .from("spreadsheets")
       .list("");
 
-    if (listError) {
-      console.error("Error listing files:", listError);
-      return new Response(
-        JSON.stringify({ error: "Erro ao buscar planilhas" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+    if (listError) throw new Error("Erro ao listar arquivos: " + listError.message);
 
-    // Read content from all spreadsheet files
     let spreadsheetsContext = "";
     if (files && files.length > 0) {
       for (const file of files) {
+        // MODIFICAÇÃO: Procura por .xlsx
+        if (!file.name.endsWith('.xlsx')) {
+          console.warn(`Ignorando arquivo não-excel: ${file.name}`);
+          continue;
+        }
+
         const { data: fileData, error: downloadError } = await supabase.storage
           .from("spreadsheets")
           .download(file.name);
 
         if (downloadError) {
-          console.error("Download error for", file.name, downloadError);
+          console.error("Erro no download de", file.name, downloadError);
           continue;
         }
 
         if (fileData) {
           try {
-            const text = await fileData.text();
-            spreadsheetsContext += `\n\n=== Planilha: ${file.name} ===\n${text.substring(0, 10000)}\n`;
+            // --- MODIFICAÇÃO PRINCIPAL (Resolve o Problema 1) ---
+            
+            // 1. Converte o Blob (fileData) em ArrayBuffer (dados binários)
+            const arrayBuffer = await fileData.arrayBuffer();
+            
+            // 2. A biblioteca XLSX lê os dados binários
+            const workbook = XLSX.read(arrayBuffer, { type: "buffer" });
+            
+            let fileContentAsText = ""; // Armazena o texto de todas as abas
+
+            // 3. Itera sobre CADA ABA (sheet) da planilha
+            for (const sheetName of workbook.SheetNames) {
+              const sheet = workbook.Sheets[sheetName];
+              
+              // 4. Converte a aba em um texto formato CSV (fácil para a IA ler)
+              const csvText = XLSX.utils.sheet_to_csv(sheet);
+              
+              fileContentAsText += `\n--- Aba: ${sheetName} ---\n${csvText}\n`;
+            }
+            
+            // 5. Adiciona o texto extraído ao contexto
+            spreadsheetsContext += `\n\n=== Planilha: ${file.name} ===\n${fileContentAsText.substring(0, 10000)}\n`;
+            // --- Fim da Modificação ---
+            
           } catch (e) {
-            console.error("Parse error for", file.name, e);
+            console.error(`ERRO AO PROCESSAR O ARQUIVO ${file.name}:`, e);
+            // Isso vai pegar o erro do 'Janeiro-2025.xlsx' se ele estiver corrompido
+            spreadsheetsContext += `\n\n=== Planilha: ${file.name} ===\nERRO: Não foi possível ler este arquivo. Pode estar corrompido.\n`;
           }
         }
       }
     }
+    // --- Fim do Carregamento do Supabase ---
 
-    // Get Gemini API key
+    // --- Preparação do Prompt ---
     const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
-    console.log("GEMINI_API_KEY configured:", !!GEMINI_API_KEY);
     if (!GEMINI_API_KEY) {
-      console.error("GEMINI_API_KEY not found in environment");
-      return new Response(
-        JSON.stringify({ error: "API key não configurada" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      throw new Error("GEMINI_API_KEY não configurada");
     }
 
-    // Prepare system prompt with spreadsheet context
-    const systemPrompt = `Você é um assistente de análise de vendas da Alpha Insights, especializado em interpretar dados de planilhas de vendas. 
-    Seu papel é analisar **todas as planilhas disponíveis**, identificar padrões e responder perguntas sobre vendas, produtos e receitas com base nos dados fornecidos.
-
-${spreadsheetsContext ? `Aqui estão os dados das planilhas disponíveis:\n${spreadsheetsContext}` : "Nenhuma planilha foi enviada ainda. Informe ao usuário que ele precisa fazer upload de planilhas primeiro."}
+    const systemPrompt = `Você é um assistente de análise de vendas da Alpha Insights...
+    
+${spreadsheetsContext ? `Aqui estão os dados das planilhas disponíveis:\n${spreadsheetsContext}` : "Nenhuma planilha foi enviada. Informe ao usuário que ele precisa fazer upload."}
 
 INSTRUÇÕES IMPORTANTES:
-- Use **todas as planilhas e abas** disponíveis no contexto antes de responder.
-- Se houver divergência entre dados, **explique** e indique as possíveis razões (por exemplo, dados de meses diferentes).
-- Nunca invente informações ou números que não estejam nas planilhas.
-- Se a pergunta for repetida, mantenha a mesma resposta a menos que os dados realmente mudem.
-- Se os dados forem insuficientes, diga isso claramente.
-- Sempre responda em **português do Brasil**.
-- Seja educado, direto e profissional.
-- Dê **números exatos e percentuais** sempre que possível.
-- Resuma quando a pergunta for ampla, mas cite as fontes (planilhas e abas).
+- Os dados da planilha estão em formato CSV.
+- Responda APENAS com base nos dados das planilhas fornecidas.
+- Se a pergunta for "e em [mês]?", use o contexto da pergunta anterior para entender o que analisar.
+- Sempre responda em português do Brasil.
+`;
+    // --- Fim do Prompt ---
 
-   // Chamada correta à API Gemini v1beta
-console.log("Chamando Gemini API (v1beta) com gemini-1.5-pro-latest...");
+    // MODIFICAÇÃO: Construir o payload 'contents' usando o histórico
+    const contents = buildGeminiContents(systemPrompt, history, message);
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-
-if (!GEMINI_API_KEY) {
-  throw new Error("GEMINI_API_KEY não está definida nas variáveis de ambiente da Vercel.");
-}
-
-const aiResponse = await fetch(
-  `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent?key=${GEMINI_API_KEY}`,
-  {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      contents: [
-        {
-          parts: [{ text: `${systemPrompt}\n\nUsuário: ${message}` }],
+    // --- Chamada à API Gemini (Seu código original tinha duas, limpei para ficar só uma) ---
+    const aiResponse = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
         },
-      ],
-    }),
-  }
-);
-
-if (!aiResponse.ok) {
-  const errorText = await aiResponse.text();
-  console.error("Erro na chamada da API Gemini:", aiResponse.status, errorText);
-  throw new Error(`Falha na requisição: ${aiResponse.status}`);
-}
-
-const result = await aiResponse.json();
-console.log("Resposta da Gemini:", result);
-
-const botMessage = result?.candidates?.[0]?.content?.parts?.[0]?.text || "Não foi possível gerar uma resposta.";
-
-
-    console.log("Gemini API response status:", aiResponse.status);
+        body: JSON.stringify({
+          contents: contents, // Envia os 'contents' completos com histórico
+        }),
+      }
+    );
 
     if (!aiResponse.ok) {
-      if (aiResponse.status === 429) {
-        return new Response(
-          JSON.stringify({ error: "rate_limit" }),
-          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      if (aiResponse.status === 402) {
-        return new Response(
-          JSON.stringify({ error: "payment_required" }),
-          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      
       const errorText = await aiResponse.text();
-      console.error("AI API error:", aiResponse.status, errorText);
-      return new Response(
-        JSON.stringify({ 
-          error: "Erro ao processar com IA",
-          details: errorText,
-          status: aiResponse.status 
-        }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      console.error("Erro na API Gemini:", aiResponse.status, errorText);
+      throw new Error(`Falha na requisição à IA: ${aiResponse.status} ${errorText}`);
     }
 
-    const aiData = await aiResponse.json();
-    console.log("AI Response:", JSON.stringify(aiData, null, 2));
-    const responseText = aiData.candidates?.[0]?.content?.parts?.[0]?.text || "Desculpe, não consegui processar sua pergunta.";
+    const result = await aiResponse.json();
+    const botMessage = result?.candidates?.[0]?.content?.parts?.[0]?.text || "Desculpe, não consegui gerar uma resposta.";
 
-    console.log("Sending response:", responseText);
     return new Response(
-      JSON.stringify({ response: responseText }),
+      JSON.stringify({ response: botMessage }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
 
   } catch (error) {
-    console.error("Error in chat-analysis:", error);
+    console.error("Erro principal no Deno serve:", error);
     return new Response(
       JSON.stringify({ error: error instanceof Error ? error.message : "Erro desconhecido" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 });
-
