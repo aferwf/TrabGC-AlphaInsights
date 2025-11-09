@@ -1,0 +1,7 @@
+project_id = "ghudukzemekozymquzmv"
+
+[functions.chat]
+verify_jwt = true
+
+[functions.ingest-vendas]
+verify_jwt = true
