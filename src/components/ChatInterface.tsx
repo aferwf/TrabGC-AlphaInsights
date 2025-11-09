@@ -130,7 +130,7 @@ export const ChatInterface = () => {
   };
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col justify-between bg-card rounded-2xl p-4 h-[550px] overflow-hidden">
       <div className="mb-4">
         <h2 className="text-2xl font-bold text-foreground">
           Chatbot de Análise de Planilhas
@@ -139,7 +139,7 @@ export const ChatInterface = () => {
       </div>
 
       {/* Messages area with fixed height and scroll */}
-      <div className="flex-1 overflow-y-auto space-y-4 mb-4 pr-2" style={{ maxHeight: "calc(100vh - 280px)" }}>
+      <div className="flex-1 overflow-y-auto space-y-4 mb-4 pr-2">
         {messages.map((msg, idx) => (
           <div
             key={idx}
