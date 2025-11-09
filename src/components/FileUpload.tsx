@@ -532,7 +532,7 @@ export const FileUpload = () => {
         <h3 className="text-sm font-semibold text-muted-foreground mb-3">
           Arquivos enviados
         </h3>
-        <div className="space-y-2">
+        <div className="space-y-2 max-h-96 overflow-y-auto pr-2">
           {files.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-8">
               Nenhum arquivo enviado ainda
